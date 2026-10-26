@@ -9,6 +9,7 @@ import {
   useMap,
   useMapEvents,
   Polyline,
+  Polygon,
 } from "react-leaflet";
 import type { Bounds, Point, Project } from "./types";
 import { category, DEMO_BOUNDS } from "./engine";
@@ -168,6 +169,40 @@ export default function MapView({
           eventHandlers={{ tileerror: () => setFailed(true) }}
         />
         <Fit bounds={project.bounds} />
+        {showProposals &&
+          project.designs?.map((d) => (
+            <Polygon
+              key={d.id}
+              positions={d.plot}
+              pathOptions={{
+                color: d.fit === "fits" ? "#8e77b5" : "#c5a26e",
+                fillColor: d.category === "green" ? "#9dbb8b" : "#c7b9d9",
+                fillOpacity: 0.45,
+                weight: 2,
+              }}
+              eventHandlers={{ click: () => onSelect(d.proposalId) }}
+            >
+              <Popup>
+                <b>{d.title}</b>
+                <p>
+                  Проектируемый участок: {d.width} × {d.depth} м<br />
+                  {d.fit === "fits"
+                    ? "Контур проверен по загруженным данным"
+                    : "Требуется уточнение границ"}
+                </p>
+              </Popup>
+            </Polygon>
+          ))}
+        {showProposals &&
+          project.designs
+            ?.filter((d) => d.context.access.length > 1)
+            .map((d) => (
+              <Polyline
+                key={`access-${d.id}`}
+                positions={d.context.access}
+                pathOptions={{ color: "#a28bbd", weight: 3, dashArray: "5 5" }}
+              />
+            ))}
         <Rectangle
           bounds={[
             [project.bounds[0], project.bounds[1]],

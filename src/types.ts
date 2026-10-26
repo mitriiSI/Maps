@@ -53,6 +53,109 @@ export type Revision = {
   comment?: string;
   proposals: Proposal[];
 };
+/** Local plan coordinates: x = east, z = south, dimensions in metres. */
+export type PlanPoint = [number, number];
+export type PlanSurface =
+  | "grass"
+  | "pavers"
+  | "rubber"
+  | "sand"
+  | "deck"
+  | "planting";
+export type PlanZone = {
+  id: string;
+  name: string;
+  description: string;
+  polygon: PlanPoint[];
+  surface: PlanSurface;
+  color: string;
+};
+export type PlanPath = {
+  id: string;
+  name: string;
+  points: PlanPoint[];
+  width: number;
+  color: string;
+};
+export type PlanVolume = {
+  id: string;
+  name: string;
+  center: PlanPoint;
+  width: number;
+  depth: number;
+  height: number;
+  floors: number;
+  color: string;
+  roof: "flat" | "green" | "canopy";
+};
+export type AssetKind =
+  | "tree"
+  | "bench"
+  | "lamp"
+  | "bin"
+  | "bicycle"
+  | "pergola"
+  | "play"
+  | "flowerbed"
+  | "sign"
+  | "sports"
+  | "fountain";
+export type PlanAsset = {
+  id: string;
+  kind: AssetKind;
+  point: PlanPoint;
+  rotation: number;
+  variant?: number;
+};
+export type PlanEntrance = {
+  id: string;
+  name: string;
+  point: PlanPoint;
+  width: number;
+  kind: "main" | "secondary" | "service";
+};
+export type PlanViewpoint = {
+  id: string;
+  name: string;
+  position: PlanPoint;
+  target: PlanPoint;
+};
+export type DetailedDesign = {
+  id: string;
+  proposalId: string;
+  generation: number;
+  sourceVersion: number;
+  category: CategoryId;
+  anchor: Point;
+  angle: number;
+  offset: PlanPoint;
+  width: number;
+  depth: number;
+  plot: Point[];
+  title: string;
+  subtitle: string;
+  narrative: string[];
+  fit: "fits" | "needs-review";
+  fitNotes: string[];
+  zones: PlanZone[];
+  paths: PlanPath[];
+  volumes: PlanVolume[];
+  assets: PlanAsset[];
+  entrances: PlanEntrance[];
+  viewpoints: PlanViewpoint[];
+  materials: { name: string; use: string; color: string }[];
+  program: { name: string; value: string }[];
+  context: {
+    roadName: string;
+    roadPoint?: Point;
+    roadDistance?: number;
+    access: Point[];
+    accessClear: boolean;
+    neighbors: { name: string; distance: number; point: Point }[];
+  };
+  phases: string[];
+  requirements: string[];
+};
 export type Project = {
   id: string;
   name: string;
@@ -67,4 +170,5 @@ export type Project = {
   approvedBy?: string;
   approvedAt?: string;
   updatedAt: string;
+  designs?: DetailedDesign[];
 };

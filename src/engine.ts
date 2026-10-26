@@ -8,6 +8,7 @@ import type {
   Project,
   Proposal,
 } from "./types";
+import { createDetailedDesigns } from "./design";
 
 export const CATEGORIES: {
   id: CategoryId;
@@ -232,6 +233,33 @@ export function generateProposals(
       if (!blockedPoint(p, dataset.features)) candidates.push(p);
     }
   const proposals: Proposal[] = [];
+  const clearance = new Map<Point, number>();
+  for (const point of candidates) {
+    let gap = Math.min(
+      distance(point, [bounds[0], point[1]]),
+      distance(point, [bounds[2], point[1]]),
+      distance(point, [point[0], bounds[1]]),
+      distance(point, [point[0], bounds[3]]),
+    );
+    for (const f of dataset.features) {
+      if (
+        !f.geometry?.length ||
+        !["building", "water", "park", "road"].includes(f.kind)
+      )
+        continue;
+      for (const poly of f.polygons?.length ? f.polygons : [f.geometry])
+        for (let i = 1; i < poly.length; i++)
+          gap = Math.min(
+            gap,
+            Math.max(
+              0,
+              roadDistance(point, poly[i - 1], poly[i]) -
+                (f.kind === "road" ? (f.major ? 17 : 8) : 0),
+            ),
+          );
+    }
+    clearance.set(point, gap);
+  }
   for (const item of needs) {
     const existing = dataset.features.filter(
       (f) => f.category === item.category,
@@ -258,9 +286,15 @@ export function generateProposals(
         distance(p, [p[0], bounds[1]]),
         distance(p, [p[0], bounds[3]]),
       );
-      return Math.min(gap, 1500) - home * 1.1 + Math.min(edge, 150) * 0.4;
+      return (
+        Math.min(gap, 1500) -
+        home * 1.1 +
+        Math.min(edge, 150) * 0.4 +
+        Math.min(60, clearance.get(p) || 0) * 18
+      );
     };
-    available.sort((a, b) => score(b) - score(a));
+    const scores = new Map(available.map((p) => [p, score(p)]));
+    available.sort((a, b) => scores.get(b)! - scores.get(a)!);
     const point = available[0];
     proposals.push({
       id: `p-${item.category}`,
@@ -446,7 +480,13 @@ export function submitReview(p: Project): Project {
       "Сначала внесите изменения по замечанию специалиста и сохраните новую версию.",
     );
   return record(
-    { ...p, stage: "review", approvedBy: undefined, approvedAt: undefined },
+    {
+      ...p,
+      stage: "review",
+      approvedBy: undefined,
+      approvedAt: undefined,
+      designs: undefined,
+    },
     "Эскиз передан на согласование",
     "Автор проекта",
   );
@@ -461,6 +501,7 @@ export function approve(p: Project, name: string): Project {
       stage: "approved",
       approvedBy: name.trim(),
       approvedAt: new Date().toISOString(),
+      designs: undefined,
     },
     "Эскиз одобрен специалистом",
     name.trim(),
@@ -476,7 +517,13 @@ export function requestChanges(
   if (!name.trim() || !comment.trim())
     throw new Error("Укажите имя и замечание.");
   return record(
-    { ...p, stage: "changes", approvedBy: undefined, approvedAt: undefined },
+    {
+      ...p,
+      stage: "changes",
+      approvedBy: undefined,
+      approvedAt: undefined,
+      designs: undefined,
+    },
     "Запрошены изменения",
     name.trim(),
     comment.trim(),
@@ -486,8 +533,8 @@ export function detail(p: Project): Project {
   if (p.stage !== "approved" || !p.approvedBy)
     throw new Error("Для детализации необходимо одобрение специалиста.");
   return record(
-    { ...p, stage: "detailed" },
-    "Подготовлен детализированный концептуальный макет",
+    { ...p, stage: "detailed", designs: createDetailedDesigns(p) },
+    "Разработан подробный проект: генпланы, инфраструктура и 3D-панорамы",
     "Автор проекта",
   );
 }
@@ -555,6 +602,7 @@ export function revise(p: Project, edit: Edit): Project {
       version: p.version + 1,
       approvedBy: undefined,
       approvedAt: undefined,
+      designs: undefined,
     },
     "Эскиз и обоснование обновлены",
     "Автор проекта",

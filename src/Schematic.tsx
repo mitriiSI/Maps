@@ -1,6 +1,8 @@
 import { useId } from "react";
 import type { Feature, Point, Project, Proposal } from "./types";
 import { category } from "./engine";
+import IsometricDesign from "./IsometricDesign";
+import { designGeo, localToGeo } from "./design";
 
 export default function Schematic({
   project,
@@ -11,6 +13,7 @@ export default function Schematic({
   showExisting = true,
   showProposals = true,
   detailed = false,
+  focus,
 }: {
   project: Project;
   active?: string;
@@ -20,6 +23,7 @@ export default function Schematic({
   showExisting?: boolean;
   showProposals?: boolean;
   detailed?: boolean;
+  focus?: string;
 }) {
   const prefix = useId().replace(/:/g, "");
   const b = project.bounds;
@@ -37,6 +41,28 @@ export default function Schematic({
   };
   const path = (points: Point[], z = 0) =>
     points.map((p) => at(p, z).join(",")).join(" ");
+  const centerGeo: Point = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2],
+    m0 = at(centerGeo),
+    m1 = at(localToGeo([1, 0], centerGeo));
+  const meterScale = Math.hypot(m1[0] - m0[0], m1[1] - m0[1]);
+  const focused = detailed
+    ? project.designs?.find((d) => d.proposalId === focus)
+    : undefined;
+  const focusPoint = focused ? at(designGeo(focused, [0, 0])) : [500, 365];
+  const projected = focused?.plot.map((p) => at(p));
+  const focusScale = projected
+    ? Math.min(
+        45,
+        480 /
+          Math.max(
+            1,
+            Math.max(...projected.map((p) => p[0])) -
+              Math.min(...projected.map((p) => p[0])),
+            Math.max(...projected.map((p) => p[1])) -
+              Math.min(...projected.map((p) => p[1])),
+          ),
+      )
+    : 1;
   const ground = [
     [0, 0],
     [1, 0],
@@ -90,7 +116,9 @@ export default function Schematic({
       ? 3
       : isProposal
         ? 23
-        : Math.min(54, ("levels" in f ? f.levels || 3 : 3) * 3.3);
+        : detailed
+          ? ("levels" in f ? f.levels || 3 : 3) * 3.1 * meterScale
+          : Math.min(54, ("levels" in f ? f.levels || 3 : 3) * 3.3);
     const [px, py] = projectPoint(x, y, h);
     return (
       <g
@@ -270,7 +298,7 @@ export default function Schematic({
         opacity=".65"
       />
       <g
-        transform={`translate(500 365) scale(${zoom}) rotate(${rotation}) translate(-500 -365)`}
+        transform={`translate(500 365) scale(${zoom * focusScale}) rotate(${rotation}) translate(${-focusPoint[0]} ${-focusPoint[1]})`}
       >
         <polygon
           points={ground}
@@ -334,12 +362,22 @@ export default function Schematic({
               [px, py] = projectPoint(x, y);
             return (
               <g key={i} transform={`translate(${px} ${py})`}>
-                <ellipse cy="2" rx="6" ry="3" fill="#56765b" opacity=".12" />
-                <path d="M0 0v-6" stroke="#8b9b7d" strokeWidth="1.5" />
                 <ellipse
-                  cy="-9"
-                  rx="5"
-                  ry="7"
+                  cy="2"
+                  rx={detailed ? meterScale * 2.5 : 6}
+                  ry={detailed ? meterScale * 1.2 : 3}
+                  fill="#56765b"
+                  opacity=".12"
+                />
+                <path
+                  d={`M0 0v${detailed ? -meterScale * 3 : -6}`}
+                  stroke="#8b9b7d"
+                  strokeWidth={detailed ? meterScale * 0.25 : 1.5}
+                />
+                <ellipse
+                  cy={detailed ? -meterScale * 4.5 : -9}
+                  rx={detailed ? meterScale * 2.2 : 5}
+                  ry={detailed ? meterScale * 2.8 : 7}
                   fill={i % 3 === 0 ? "#97b28a" : "#aac19b"}
                 />
               </g>
@@ -347,6 +385,7 @@ export default function Schematic({
           })}
           {showExisting && buildings.slice(0, 800).map((f) => structure(f))}
           {showExisting &&
+            !focused &&
             project.dataset.features
               .filter((f) => f.category && f.kind !== "building")
               .map((f) => {
@@ -379,7 +418,7 @@ export default function Schematic({
           strokeDasharray="7 5"
           opacity=".8"
         />
-        {project.dataset.source === "demo" && (
+        {project.dataset.source === "demo" && !focused && (
           <g fill="#8f9a95" fontSize="10" letterSpacing="1.7">
             <text x="300" y="428" transform="rotate(29 300 428)">
               БУЛЬВАР БРАТЬЕВ ВЕСНИНЫХ
@@ -398,7 +437,17 @@ export default function Schematic({
           </g>
         )}
         {showProposals &&
-          project.proposals.map((p, i) => structure(p, true, i))}
+          (detailed && project.designs
+            ? project.designs.map((d) => (
+                <IsometricDesign
+                  key={d.id}
+                  design={d}
+                  at={at}
+                  active={d.proposalId === active}
+                  onSelect={() => onSelect?.(d.proposalId)}
+                />
+              ))
+            : project.proposals.map((p, i) => structure(p, true, i)))}
       </g>
     </svg>
   );

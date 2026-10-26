@@ -1,5 +1,6 @@
 import type { Project } from "./types";
 import { CATEGORIES, createDemo } from "./engine";
+import { upgradeDetailedProject, validateDesign } from "./design";
 const KEY = "forma-maps-projects-v1";
 export function validateProject(p: unknown): p is Project {
   if (!p || typeof p !== "object") return false;
@@ -40,6 +41,10 @@ export function validateProject(p: unknown): p is Project {
     x.version > 0 &&
     ["draft", "review", "changes", "approved", "detailed"].includes(x.stage) &&
     typeof x.updatedAt === "string" &&
+    (x.designs === undefined ||
+      (Array.isArray(x.designs) &&
+        x.designs.length <= 100 &&
+        x.designs.every(validateDesign))) &&
     !!x.dataset &&
     ["demo", "osm"].includes(x.dataset.source) &&
     typeof x.dataset.fetchedAt === "string" &&
@@ -51,6 +56,8 @@ export function validateProject(p: unknown): p is Project {
         point(f.point) &&
         ["poi", "building", "road", "park", "water"].includes(f.kind) &&
         (!f.category || CATEGORIES.some((c) => c.id === f.category)) &&
+        (f.levels === undefined ||
+          (Number.isFinite(f.levels) && f.levels > 0 && f.levels <= 100)) &&
         (!f.geometry ||
           (Array.isArray(f.geometry) && f.geometry.every(point))) &&
         (!f.polygons ||
@@ -82,7 +89,7 @@ export function loadProjects(): Project[] {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || "null");
     if (Array.isArray(saved) && saved.length && saved.every(validateProject))
-      return saved;
+      return saved.map(upgradeDetailedProject);
   } catch {
     /* Invalid or unavailable browser storage: open demo. */
   }
@@ -96,7 +103,10 @@ export function download(
   data: string,
   type = "application/json",
 ) {
-  const url = URL.createObjectURL(new Blob([data], { type }));
+  downloadBlob(name, new Blob([data], { type }));
+}
+export function downloadBlob(name: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
@@ -123,5 +133,5 @@ export async function importProject(file: File): Promise<Project> {
     !validateProject(data.project)
   )
     throw new Error("Файл не соответствует формату проекта «Форма».");
-  return data.project;
+  return upgradeDetailedProject(data.project);
 }

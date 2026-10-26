@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownToLine,
   ArrowLeft,
@@ -14,6 +14,7 @@ import {
   CircleHelp,
   Clock3,
   Compass,
+  Eye,
   FileText,
   Folder,
   GraduationCap,
@@ -73,6 +74,8 @@ import {
   saveProjects,
 } from "./storage";
 import Schematic from "./Schematic";
+import DesignWorkspace from "./DesignWorkspace";
+const Panorama = lazy(() => import("./Panorama"));
 import MapView, { PickerMap } from "./MapView";
 
 const ICONS: Record<CategoryId, LucideIcon> = {
@@ -93,7 +96,7 @@ const STAGES = {
   review: "На согласовании",
   changes: "Нужны изменения",
   approved: "Эскиз одобрен",
-  detailed: "Детальный макет готов",
+  detailed: "Подробный проект готов",
 };
 type Panel = "analysis" | "reason" | "review" | "history";
 type ModalName =
@@ -649,7 +652,8 @@ export default function App() {
     });
   const project = projects.find((p) => p.id === activeId) || projects[0];
   const [panel, setPanel] = useState<Panel>("analysis"),
-    [view, setView] = useState<"model" | "map">("model"),
+    [view, setView] = useState<"model" | "map" | "panorama">("model"),
+    [focusObject, setFocusObject] = useState(false),
     [selected, setSelected] = useState<string | undefined>();
   const [modal, setModal] = useState<ModalName>(null),
     [toast, setToast] = useState(""),
@@ -689,7 +693,11 @@ export default function App() {
   }, [project.id]);
   useEffect(() => () => clearTimeout(toastTimer.current), []);
   useEffect(() => {
-    setSelected(undefined);
+    setSelected(
+      project.stage === "detailed"
+        ? project.designs?.find((d) => d.category === "green")?.proposalId
+        : undefined,
+    );
     setZoom(1.04);
     setRotation(0);
     setReviewError("");
@@ -705,6 +713,13 @@ export default function App() {
     detailed = project.stage === "detailed";
   const activeProposal =
     project.proposals.find((p) => p.id === selected) || project.proposals[0];
+  const activeDesign =
+    project.designs?.find((d) => d.proposalId === activeProposal?.id) ||
+    project.designs?.[0];
+  const scrollToMap = () =>
+    document
+      .querySelector(".map-card")
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
   const setProject = (p: Project) =>
     setProjects((ps) => ps.map((x) => (x.id === p.id ? p : x)));
   const selectProposal = (id: string) => {
@@ -718,10 +733,18 @@ export default function App() {
         setPanel("review");
         notify("Версия передана на проверку. Ожидается решение специалиста.");
       } else if (project.stage === "approved") {
-        setProject(detail(project));
+        const completed = detail(project);
+        setProject(completed);
+        setSelected(
+          completed.designs?.find((d) => d.category === "green")?.proposalId ||
+            completed.designs?.[0]?.proposalId,
+        );
+        setFocusObject(true);
         setView("model");
         setPanel("reason");
-        notify("Концепция детализирована на основе одобренного эскиза.");
+        notify(
+          "Разработаны генпланы, концепции объектов и 3D-панорамы. Подробный проект — ниже карты.",
+        );
       } else if (project.stage === "review") setPanel("review");
       else setModal("export");
     } catch (e) {
@@ -773,6 +796,7 @@ export default function App() {
         {
           ...project,
           stage: "draft",
+          designs: undefined,
           version: project.version + 1,
           approvedBy: undefined,
           approvedAt: undefined,
@@ -1042,7 +1066,7 @@ export default function App() {
                   {detailed
                     ? "Получить результат"
                     : project.stage === "approved"
-                      ? "Детализировать"
+                      ? "Разработать проект"
                       : project.stage === "review"
                         ? "Открыть проверку"
                         : "На согласование"}
@@ -1137,7 +1161,7 @@ export default function App() {
               </h2>
               <p>
                 {detailed
-                  ? "Одобренная концепция с уточнёнными объёмами и параметрами объектов."
+                  ? "Генпланы объектов, благоустройство и прогулка по проектируемому пространству."
                   : "Существующая инфраструктура и возможности для развития."}
               </p>
             </div>
@@ -1185,6 +1209,13 @@ export default function App() {
                   >
                     <Box size={14} />
                     3D-макет
+                  </button>
+                  <button
+                    className={view === "panorama" ? "selected" : ""}
+                    onClick={() => setView("panorama")}
+                  >
+                    <Eye size={14} />
+                    3D-панорама
                   </button>
                 </div>
                 <div className="map-tools">
@@ -1238,7 +1269,9 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <div className="map-canvas">
+              <div
+                className={`map-canvas ${view === "panorama" ? "map-panorama" : ""}`}
+              >
                 {view === "model" ? (
                   <Schematic
                     project={project}
@@ -1249,7 +1282,48 @@ export default function App() {
                     showExisting={showExisting}
                     showProposals={showProposals}
                     detailed={detailed}
+                    focus={focusObject ? activeProposal?.id : undefined}
                   />
+                ) : view === "panorama" ? (
+                  detailed && activeDesign ? (
+                    <Suspense
+                      fallback={
+                        <div className="panorama-loading">
+                          <Loader2 size={23} className="spin" />
+                          Загружаем 3D-панораму…
+                        </div>
+                      }
+                    >
+                      <Panorama
+                        project={project}
+                        design={activeDesign}
+                        onMessage={notify}
+                      />
+                    </Suspense>
+                  ) : (
+                    <div className="panorama-locked">
+                      <Eye size={32} />
+                      <h3>Прогулка по будущему пространству</h3>
+                      <p>
+                        После одобрения эскиза Форма разработает сам объект:
+                        дорожки, зоны, посадки, здания и оборудование. Здесь вы
+                        сможете осмотреть его с уровня человека.
+                      </p>
+                      <button
+                        className="button primary"
+                        onClick={() => {
+                          setPanel("review");
+                          if (project.stage === "approved") primary();
+                        }}
+                      >
+                        {" "}
+                        {project.stage === "approved"
+                          ? "Разработать проект и открыть панораму"
+                          : "Перейти к согласованию"}
+                        <ArrowRight size={15} />
+                      </button>
+                    </div>
+                  )
                 ) : (
                   <MapView
                     key={project.id}
@@ -1265,9 +1339,31 @@ export default function App() {
                     <div className="model-label">
                       <span className="live-dot" />
                       {detailed
-                        ? "Детальная концепция"
+                        ? "Подробный пространственный проект"
                         : "Предварительный эскиз"}
                     </div>
+                    {detailed && (
+                      <div className="object-focus-switch">
+                        <button
+                          className={!focusObject ? "active" : ""}
+                          onClick={() => {
+                            setFocusObject(false);
+                            setZoom(1.04);
+                          }}
+                        >
+                          Весь район
+                        </button>
+                        <button
+                          className={focusObject ? "active" : ""}
+                          onClick={() => {
+                            setFocusObject(true);
+                            setZoom(1.04);
+                          }}
+                        >
+                          Объект крупно
+                        </button>
+                      </div>
+                    )}
                     <div className="map-compass">
                       <span>С</span>
                       <Compass
@@ -1309,20 +1405,22 @@ export default function App() {
                     <span className="model-scale">Схематическая геометрия</span>
                   </>
                 )}
-                <div className="map-legend">
-                  <span>
-                    <i className="legend-existing" />
-                    Существующее
-                  </span>
-                  <span>
-                    <i className="legend-new" />
-                    Предлагаемое
-                  </span>
-                  <span>
-                    <i className="legend-boundary" />
-                    Граница участка
-                  </span>
-                </div>
+                {view !== "panorama" && (
+                  <div className="map-legend">
+                    <span>
+                      <i className="legend-existing" />
+                      Существующее
+                    </span>
+                    <span>
+                      <i className="legend-new" />
+                      Предлагаемое
+                    </span>
+                    <span>
+                      <i className="legend-boundary" />
+                      Граница участка
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="map-footer">
                 <span>
@@ -1547,30 +1645,43 @@ export default function App() {
                             </p>
                           </div>
                         )}
-                        {detailed && (
+                        {detailed && activeDesign && (
                           <div className="detail-spec">
-                            <h4>Параметры концепции</h4>
+                            <h4>{activeDesign.title}</h4>
                             <div>
-                              <span>Вместимость*</span>
+                              <span>Проектируемый участок</span>
                               <strong>
-                                {activeProposal.capacity}{" "}
-                                {category(activeProposal.category).unit}
+                                {activeDesign.width} × {activeDesign.depth} м
                               </strong>
                             </div>
                             <div>
-                              <span>Радиус доступности*</span>
+                              <span>Состав проекта</span>
                               <strong>
-                                {category(activeProposal.category).radius} м
+                                {activeDesign.zones.length} зон ·{" "}
+                                {activeDesign.volumes.length} объёмов
                               </strong>
                             </div>
-                            <div>
-                              <span>Геометрия</span>
-                              <strong>Условная</strong>
-                            </div>
-                            <small>
-                              *Проектные допущения, требуют проверки
-                              специалистом.
-                            </small>
+                            <button
+                              className="text-button"
+                              onClick={() =>
+                                document
+                                  .querySelector(".design-workspace")
+                                  ?.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "start",
+                                  })
+                              }
+                            >
+                              Открыть подробный проект
+                              <ArrowRight size={13} />
+                            </button>
+                            <button
+                              className="button full-width"
+                              onClick={() => setView("panorama")}
+                            >
+                              <Eye size={14} />
+                              Осмотреть в 3D-панораме
+                            </button>
                           </div>
                         )}
                         <div className="coordinates-card">
@@ -1749,7 +1860,7 @@ export default function App() {
                           onClick={primary}
                         >
                           <Box size={16} />
-                          Создать детальный макет
+                          Разработать подробный проект
                         </button>
                       </>
                     ) : detailed ? (
@@ -1838,6 +1949,28 @@ export default function App() {
             </aside>
           </div>
 
+          {detailed && activeDesign && (
+            <DesignWorkspace
+              key={project.id}
+              project={project}
+              design={activeDesign}
+              onChoose={(id) => {
+                setSelected(id);
+                setPanel("reason");
+              }}
+              onPanorama={() => {
+                setView("panorama");
+                scrollToMap();
+              }}
+              onFocus={() => {
+                setView("model");
+                setFocusObject(true);
+                setZoom(1.04);
+                scrollToMap();
+              }}
+              onMessage={notify}
+            />
+          )}
           <section className="recommendations">
             <div className="recommendations-header">
               <div>
@@ -2098,6 +2231,31 @@ export default function App() {
               <ArrowDownToLine size={19} />
             </button>
           </div>
+          {detailed && activeDesign && (
+            <button
+              className="button full-width"
+              onClick={async () => {
+                notify("Собираем пространственный проект…");
+                try {
+                  const { exportDetailedModel } = await import("./modelExport");
+                  await exportDetailedModel(project, activeDesign);
+                  notify(
+                    "3D-проект сохранён в GLB: здания, благоустройство и окружение.",
+                  );
+                } catch (e) {
+                  notify(
+                    e instanceof Error
+                      ? e.message
+                      : "Не удалось сохранить 3D-проект.",
+                  );
+                }
+              }}
+            >
+              <Box size={17} />
+              Скачать проект объекта .glb
+              <ArrowDownToLine size={15} />
+            </button>
+          )}
           <div className="export-note">
             <ShieldCheck size={17} />
             <p>
