@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
@@ -17,3 +18,5 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Verify GitHub Pages files match the build
+        run: node scripts/prepare-pages.mjs --check
